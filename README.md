@@ -32,8 +32,10 @@ Akaike-Internship-Assignment/
 
 2. **Install Dependencies:**
    ```bash
-   python -m venv venv
+   py --list
+   py -3.10 -m venv env
    venv\Scripts\activate
+   python --version
 
    pip install -r requirements.txt
    ```

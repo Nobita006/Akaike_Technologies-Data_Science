@@ -10,20 +10,22 @@ def analyze():
     if not company:
         return jsonify({"error": "Company name not provided"}), 400
     
-    # Fetch news articles using the improved function
+    # Fetch BBC articles
     raw_articles = fetch_news(company)
     if not raw_articles:
-        return jsonify({"error": f"No articles found for {company}."}), 404
-
+        return jsonify({
+            "error": f"No articles found for '{company}'."
+        }), 404
+    
+    # Process each article (summarize, sentiment, topics)
     processed_articles = [process_article(article) for article in raw_articles]
     
-    # Comparative sentiment analysis
+    # Perform comparative sentiment analysis
     comp_analysis = comparative_analysis(processed_articles)
     
-    # Aggregate final sentiment (simple majority count)
+    # Aggregate final sentiment
     pos = sum(1 for art in processed_articles if art["Sentiment"] == "Positive")
     neg = sum(1 for art in processed_articles if art["Sentiment"] == "Negative")
-    
     if pos > neg:
         final_sentiment = f"{company}'s news coverage is mostly positive."
     elif neg > pos:
@@ -31,7 +33,7 @@ def analyze():
     else:
         final_sentiment = "Overall, the news coverage seems balanced."
     
-    # Generate Hindi TTS for the final sentiment summary
+    # Generate Hindi TTS
     audio_text = f"Company {company}. {final_sentiment}"
     audio_file = generate_tts(audio_text, lang='hi')
     
@@ -40,7 +42,7 @@ def analyze():
         "Articles": processed_articles,
         "Comparative Sentiment Score": comp_analysis,
         "Final Sentiment Analysis": final_sentiment,
-        "Audio": audio_file  # Filename; accessible via /audio endpoint
+        "Audio": audio_file
     }
     
     return jsonify(response)
@@ -49,7 +51,7 @@ def analyze():
 def get_audio(filename):
     try:
         return send_file(filename, mimetype="audio/mp3")
-    except Exception as e:
+    except Exception:
         return jsonify({"error": "Audio file not found"}), 404
 
 if __name__ == '__main__':
