@@ -15,10 +15,10 @@ def analyze():
     if not raw_articles:
         return jsonify({"error": f"No articles found for '{company}'."}), 404
     
-    # Process each article: advanced summarization, sentiment analysis, and topic extraction
+    # Process each article: advanced summarization, sentiment analysis, topic extraction
     processed_articles = [process_article(article) for article in raw_articles]
     
-    # Prepare final output for articles (Title, Summary, Sentiment, Topics)
+    # Prepare final output for articles (only Title, Summary, Sentiment, and Topics)
     articles_output = [{
         "Title": art.get("Title"),
         "Summary": art.get("Summary"),
@@ -37,7 +37,7 @@ def analyze():
     elif sentiment_distribution.get("Negative", 0) > sentiment_distribution.get("Positive", 0):
         majority = "Negative"
     
-    # Aggregate all article summaries and generate a short summary from them
+    # Aggregate all article summaries and generate a short dynamic summary (one sentence)
     aggregated_text = " ".join([art["Summary"] for art in processed_articles])
     short_summary = advanced_summarize(aggregated_text, num_sentences=1)
     

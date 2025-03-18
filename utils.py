@@ -102,10 +102,11 @@ async def fetch_article_content(session: aiohttp.ClientSession, url: str) -> str
         logging.error(f"Error fetching article content asynchronously from {url}: {e}")
         return ""
 
-def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]]:
+def fetch_news(company_name: str, num_articles: int = 16) -> List[Dict[str, str]]:
     """
     Fetch BBC news articles related to the given company.
-    Requests 15 results and then slices to the desired number.
+    This function loops through pages (up to 5 pages) and aggregates result cards until
+    at least num_articles are collected.
     """
     cache_key = f"bbc_{company_name}_{num_articles}"
     cached = get_from_cache(cache_key)
@@ -115,44 +116,50 @@ def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]
 
     base_url = "https://www.bbc.com/search"
     headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        params = {"q": company_name}
-        response = requests.get(base_url, params=params, headers=headers, timeout=10)
-        response.raise_for_status()
-    except Exception as e:
-        logging.error(f"Failed to fetch BBC search results for '{company_name}': {e}")
-        return []
-    
-    soup = BeautifulSoup(response.text, 'html.parser')
-    # Request more results than needed, then slice.
-    result_cards = soup.find_all('div', attrs={"data-testid": "newport-card"}, limit=15)
-    logging.info(f"Found {len(result_cards)} BBC search results for '{company_name}'.")
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    async def process_card(card):
-        link_tag = card.find('a', attrs={"data-testid": "internal-link"})
-        link = None
-        if link_tag and link_tag.has_attr('href'):
-            href = link_tag['href']
-            link = "https://www.bbc.com" + href if href.startswith('/') else href
-        title_tag = card.find('h2', attrs={"data-testid": "card-headline"})
-        title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
-        snippet_tag = card.find('div', class_='sc-4ea10043-3')
-        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
-        summary = snippet
-        if link:
-            async with aiohttp.ClientSession() as session:
-                content = await fetch_article_content(session, link)
-                if content and len(content) > len(snippet):
-                    summary = content
-        return {"Title": title, "Link": link, "Summary": summary if summary else "Summary not available"}
-    
-    tasks = [process_card(card) for card in result_cards]
-    articles = loop.run_until_complete(asyncio.gather(*tasks))
-    loop.close()
-    
+    articles = []
+    page = 1
+    max_pages = 5
+    while len(articles) < num_articles and page <= max_pages:
+        try:
+            params = {"q": company_name, "page": page}
+            response = requests.get(base_url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+        except Exception as e:
+            logging.error(f"Failed to fetch BBC search results for '{company_name}' on page {page}: {e}")
+            break
+        soup = BeautifulSoup(response.text, 'html.parser')
+        result_cards = soup.find_all('div', attrs={"data-testid": "newport-card"})
+        logging.info(f"Found {len(result_cards)} BBC search results for '{company_name}' on page {page}.")
+        if not result_cards:
+            break
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def process_card(card):
+            link_tag = card.find('a', attrs={"data-testid": "internal-link"})
+            link = None
+            if link_tag and link_tag.has_attr('href'):
+                href = link_tag['href']
+                link = "https://www.bbc.com" + href if href.startswith('/') else href
+            title_tag = card.find('h2', attrs={"data-testid": "card-headline"})
+            title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
+            snippet_tag = card.find('div', class_='sc-4ea10043-3')
+            snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+            summary = snippet
+            if link:
+                async with aiohttp.ClientSession() as session:
+                    content = await fetch_article_content(session, link)
+                    if content and len(content) > len(snippet):
+                        summary = content
+            return {"Title": title, "Link": link, "Summary": summary if summary else "Summary not available"}
+        
+        tasks = [process_card(card) for card in result_cards]
+        page_articles = loop.run_until_complete(asyncio.gather(*tasks))
+        loop.close()
+        articles.extend(page_articles)
+        page += 1
+
     articles = articles[:num_articles]
     set_cache(cache_key, articles)
     return articles
@@ -236,7 +243,7 @@ def translate_to_hindi(text: str) -> str:
 
 def process_article(article: Dict[str, str]) -> Dict:
     """
-    Process an article: advanced summarization, sentiment analysis, and topic extraction.
+    Process an article: perform advanced summarization, sentiment analysis, and topic extraction.
     """
     original_summary = article.get("Summary", "")
     if original_summary and original_summary != "Summary not available":
@@ -258,21 +265,19 @@ def process_article(article: Dict[str, str]) -> Dict:
 def comparative_analysis(articles: List[Dict]) -> Dict:
     """
     Compute comparative sentiment analysis and topic overlap across all articles.
-    This groups articles by sentiment and computes:
-      - Sentiment Distribution.
-      - Coverage Differences: Compare positive vs. negative articles and provide an overall comparison.
-      - Topic Overlap: Common topics between positive and negative articles, and unique topics in each group.
+    Groups articles by sentiment and computes:
+      - Overall sentiment distribution.
+      - Two comparison statements: one contrasting positive vs. negative articles and one overall.
+      - Topic Overlap: common topics between positive and negative articles and unique topics in each group.
     """
     sentiment_counts = {"Positive": 0, "Negative": 0, "Neutral": 0}
     for art in articles:
         sentiment = art.get("Sentiment", "Neutral")
         sentiment_counts[sentiment] += 1
 
-    # Group article titles and topics by sentiment
     pos_titles = [art["Title"] for art in articles if art["Sentiment"] == "Positive"]
     neg_titles = [art["Title"] for art in articles if art["Sentiment"] == "Negative"]
-    
-    # Create comparison statements across all articles
+
     comparisons = []
     if pos_titles and neg_titles:
         comparisons.append({
@@ -285,7 +290,6 @@ def comparative_analysis(articles: List[Dict]) -> Dict:
         "Impact": "The news reflects a broad spectrum of perspectives."
     })
     
-    # Compute common topics between positive and negative groups
     pos_topics = set().union(*(set(art["Topics"]) for art in articles if art["Sentiment"] == "Positive"))
     neg_topics = set().union(*(set(art["Topics"]) for art in articles if art["Sentiment"] == "Negative"))
     common_topics = list(pos_topics.intersection(neg_topics))
