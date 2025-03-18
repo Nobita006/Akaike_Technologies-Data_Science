@@ -39,10 +39,6 @@ Akaike-Internship-Assignment/
 
    pip install -r requirements.txt
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-   pip install --upgrade --no-cache-dir numpy spacy thinc pandas scipy
-   pip install --upgrade numpy pandas streamlit
-   pip install sentence-transformers
-   pip install spacy
    python -m spacy download en_core_web_sm
 
    ```
