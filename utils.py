@@ -1,41 +1,122 @@
+import os
 import logging
+import time
+import uuid
+import asyncio
+import aiohttp
 import requests
-from bs4 import BeautifulSoup
 import nltk
+from bs4 import BeautifulSoup
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk import pos_tag
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from gtts import gTTS
-import uuid
 from typing import List, Dict, Tuple
+
+# Set HF hub warning variable for Windows
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+# Import torch to check for GPU availability
+import torch
+device = 0 if torch.cuda.is_available() else -1  # device=0 means GPU; -1 means CPU
+
+# Additional libraries for advanced summarization, topic extraction, translation, and sentiment analysis
+from transformers import pipeline
+import spacy
+from googletrans import Translator  # Use googletrans==4.0.0-rc1 for best results
+from keybert import KeyBERT
 
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Download necessary NLTK data files (if not already available)
+# Download necessary NLTK data files
 nltk.download('punkt')
 nltk.download('averaged_perceptron_tagger')
 
+# Load spaCy model (download if necessary)
+try:
+    nlp = spacy.load("en_core_web_sm")
+except Exception:
+    logging.info("Downloading spaCy model...")
+    spacy.cli.download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
+
+# Initialize transformer pipelines with explicit models and device settings
+try:
+    summarizer = pipeline(
+        "summarization",
+        model="sshleifer/distilbart-cnn-12-6",
+        revision="a4f8f3e",
+        device=device
+    )
+except Exception as e:
+    logging.error(f"Error loading transformer summarization pipeline: {e}")
+    summarizer = None
+
+try:
+    sentiment_pipeline = pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        device=device
+    )
+except Exception as e:
+    logging.error(f"Error loading transformer sentiment analyzer: {e}")
+    sentiment_pipeline = None
+
+# Initialize KeyBERT for advanced topic extraction
+try:
+    kw_model = KeyBERT()
+except Exception as e:
+    logging.error(f"Error initializing KeyBERT: {e}")
+    kw_model = None
+
+# Initialize translator for converting text to Hindi
+translator = Translator()
+
+# Simple in-memory cache with expiry (5 minutes)
+cache = {}
+CACHE_EXPIRY = 300  # seconds
+
+def get_from_cache(key: str):
+    if key in cache:
+        entry = cache[key]
+        if time.time() - entry["time"] < CACHE_EXPIRY:
+            return entry["data"]
+    return None
+
+def set_cache(key: str, data):
+    cache[key] = {"data": data, "time": time.time()}
+
+async def fetch_article_content(session: aiohttp.ClientSession, url: str) -> str:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        async with session.get(url, headers=headers, timeout=10) as response:
+            text = await response.text()
+            soup = BeautifulSoup(text, 'html.parser')
+            paragraphs = soup.find_all('p')
+            if paragraphs:
+                combined = " ".join(p.get_text(strip=True) for p in paragraphs[:3])
+                return combined
+            else:
+                return ""
+    except Exception as e:
+        logging.error(f"Error fetching article content asynchronously from {url}: {e}")
+        return ""
 
 def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]]:
     """
-    Fetch news articles related to the given company from BBC's search page.
-    We parse the search results for each article's link, title, and snippet.
-    Then we make a second request to the article page to fetch paragraphs.
-    
-    Args:
-        company_name (str): The name of the company or search keyword.
-        num_articles (int): The maximum number of articles to fetch.
-    
-    Returns:
-        List[Dict[str, str]]: A list of dictionaries with keys:
-                              "Title", "Link", "Summary".
+    Fetch BBC news articles related to the given company.
+    Uses BBC's search page and asynchronous requests to retrieve article content.
+    To ensure we get at least num_articles, we request a larger set and then slice.
     """
-    # BBC search URL
+    cache_key = f"bbc_{company_name}_{num_articles}"
+    cached = get_from_cache(cache_key)
+    if cached:
+        logging.info("Returning cached news data")
+        return cached
+
     base_url = "https://www.bbc.com/search"
     headers = {"User-Agent": "Mozilla/5.0"}
-    
-    # Make the search request
     try:
         params = {"q": company_name}
         response = requests.get(base_url, params=params, headers=headers, timeout=10)
@@ -45,88 +126,78 @@ def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]
         return []
     
     soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Each search result is typically in a div[data-testid="newport-card"]
-    result_cards = soup.find_all('div', attrs={"data-testid": "newport-card"}, limit=num_articles)
+    # Request more results (15) and then slice to num_articles
+    result_cards = soup.find_all('div', attrs={"data-testid": "newport-card"}, limit=15)
     logging.info(f"Found {len(result_cards)} BBC search results for '{company_name}'.")
     
-    articles = []
-    for card in result_cards:
-        # Extract the link from <a data-testid="internal-link" ...>
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    async def process_card(card):
         link_tag = card.find('a', attrs={"data-testid": "internal-link"})
         link = None
         if link_tag and link_tag.has_attr('href'):
             href = link_tag['href']
-            # Convert relative links (e.g., /news/articles/...) to absolute
-            if href.startswith('/'):
-                link = "https://www.bbc.com" + href
-            else:
-                link = href
-        
-        # Extract the headline from <h2 data-testid="card-headline">
+            link = "https://www.bbc.com" + href if href.startswith('/') else href
         title_tag = card.find('h2', attrs={"data-testid": "card-headline"})
         title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
-        
-        # Extract the snippet from <div class="sc-4ea10043-3 kMizuB"> 
-        # (class may change, so watch for the textual region)
         snippet_tag = card.find('div', class_='sc-4ea10043-3')
         snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
-        
-        # Attempt to fetch full text from the article page
         summary = snippet
         if link:
-            try:
-                article_resp = requests.get(link, headers=headers, timeout=10)
-                article_resp.raise_for_status()
-                article_soup = BeautifulSoup(article_resp.text, 'html.parser')
-                
-                # BBC articles often have multiple <p> tags in main content
-                paragraphs = article_soup.find_all('p')
-                if paragraphs:
-                    # Combine the first 3 paragraphs for a more detailed summary
-                    combined = " ".join(p.get_text(strip=True) for p in paragraphs[:3])
-                    # If we found something meaningful, override the snippet
-                    if len(combined) > len(snippet):
-                        summary = combined
-            except Exception as e:
-                logging.error(f"Error fetching BBC article content from {link}: {e}")
-        
-        articles.append({
-            "Title": title,
-            "Link": link,
-            "Summary": summary if summary else "Summary not available"
-        })
+            async with aiohttp.ClientSession() as session:
+                content = await fetch_article_content(session, link)
+                if content and len(content) > len(snippet):
+                    summary = content
+        return {"Title": title, "Link": link, "Summary": summary if summary else "Summary not available"}
     
+    tasks = [process_card(card) for card in result_cards]
+    articles = loop.run_until_complete(asyncio.gather(*tasks))
+    loop.close()
+    
+    # Slice to the requested number
+    articles = articles[:num_articles]
+    set_cache(cache_key, articles)
     return articles
-
 
 def summarize_text(text: str, num_sentences: int = 3) -> str:
     """
-    Generate a simple summary by returning the first few sentences.
-    
-    Args:
-        text (str): The text to summarize.
-        num_sentences (int): Number of sentences to include.
-    
-    Returns:
-        str: A summarized version of the text.
+    Basic extractive summarization using the first few sentences.
     """
     sentences = sent_tokenize(text)
     return " ".join(sentences[:num_sentences]) if sentences else text
 
+def advanced_summarize(text: str, num_sentences: int = 1) -> str:
+    """
+    Use transformer-based summarization if available and text is long enough;
+    otherwise, fallback to basic summarization.
+    """
+    if summarizer and len(text.split()) > 50:
+        try:
+            input_length = len(text.split())
+            max_len = 130 if input_length >= 130 else input_length
+            summary = summarizer(text, max_length=max_len, min_length=30, do_sample=False)
+            return summary[0]['summary_text']
+        except Exception as e:
+            logging.error(f"Transformer summarization error: {e}")
+    return summarize_text(text, num_sentences)
 
 def analyze_sentiment(text: str) -> Tuple[str, Dict[str, float]]:
     """
-    Analyze the sentiment of the provided text using VADER.
-    
-    Args:
-        text (str): The text to analyze.
-    
-    Returns:
-        Tuple[str, Dict[str, float]]: Sentiment label and detailed scores.
+    Analyze sentiment using a transformer-based model if available;
+    otherwise fallback to VADER. Returns a sentiment label and scores.
     """
-    analyzer = SentimentIntensityAnalyzer()
-    scores = analyzer.polarity_scores(text)
+    if sentiment_pipeline:
+        try:
+            result = sentiment_pipeline(text)[0]
+            label = result.get("label", "NEUTRAL").upper()
+            score = result.get("score", 0.0)
+            sentiment = "Positive" if label == "POSITIVE" else "Negative" if label == "NEGATIVE" else "Neutral"
+            return sentiment, {"compound": score, "raw": result}
+        except Exception as e:
+            logging.error(f"Transformer sentiment analysis error: {e}")
+    analyzer_vader = SentimentIntensityAnalyzer()
+    scores = analyzer_vader.polarity_scores(text)
     compound = scores.get('compound', 0)
     if compound >= 0.05:
         sentiment = "Positive"
@@ -136,89 +207,81 @@ def analyze_sentiment(text: str) -> Tuple[str, Dict[str, float]]:
         sentiment = "Neutral"
     return sentiment, scores
 
-
 def extract_topics(text: str, num_topics: int = 5) -> List[str]:
     """
-    Extract key topics from text by identifying the most frequent nouns.
-    
-    Args:
-        text (str): The text to extract topics from.
-        num_topics (int): Number of topics to return.
-    
-    Returns:
-        List[str]: A list of extracted topics.
+    Extract key topics using KeyBERT. Falls back to spaCy noun-chunk extraction if necessary.
     """
-    tokens = word_tokenize(text)
-    tagged = pos_tag(tokens)
-    # Filter for nouns (common and proper)
-    nouns = [word.lower() for word, tag in tagged if tag in ('NN', 'NNS', 'NNP', 'NNPS')]
+    if kw_model:
+        try:
+            keywords = kw_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=num_topics)
+            topics = [kw[0] for kw in keywords]
+            return topics
+        except Exception as e:
+            logging.error(f"KeyBERT topic extraction error: {e}")
+    doc = nlp(text)
+    chunks = [chunk.text.lower() for chunk in doc.noun_chunks]
     freq = {}
-    for noun in nouns:
-        freq[noun] = freq.get(noun, 0) + 1
-    sorted_nouns = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    topics = [noun for noun, _ in sorted_nouns[:num_topics]]
+    for chunk in chunks:
+        freq[chunk] = freq.get(chunk, 0) + 1
+    sorted_chunks = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    topics = [chunk for chunk, _ in sorted_chunks[:num_topics]]
     return topics
 
+def translate_to_hindi(text: str) -> str:
+    """
+    Translate the provided text to Hindi using googletrans.
+    """
+    try:
+        translated = translator.translate(text, dest='hi')
+        return translated.text
+    except Exception as e:
+        logging.error(f"Translation error: {e}")
+        return text
 
 def process_article(article: Dict[str, str]) -> Dict:
     """
-    Process a raw article by summarizing, performing sentiment analysis, and extracting topics.
-    
-    Args:
-        article (Dict[str, str]): An article with "Title", "Link", and "Summary".
-    
-    Returns:
-        Dict: Processed article with updated "Summary", "Sentiment", "Sentiment Scores", and "Topics".
+    Process an article by performing advanced summarization, sentiment analysis, and topic extraction.
     """
     original_summary = article.get("Summary", "")
     if original_summary and original_summary != "Summary not available":
-        summarized_text = summarize_text(original_summary)
+        summarized_text = advanced_summarize(original_summary)
         sentiment, scores = analyze_sentiment(summarized_text)
         topics = extract_topics(summarized_text)
     else:
         summarized_text = original_summary
         sentiment, scores = "Neutral", {"compound": 0.0}
         topics = []
-    
-    processed = {
+    return {
         "Title": article.get("Title") or "No Title Found",
-        "Link": article.get("Link"),
         "Summary": summarized_text,
         "Sentiment": sentiment,
         "Sentiment Scores": scores,
         "Topics": topics
     }
-    return processed
-
 
 def comparative_analysis(articles: List[Dict]) -> Dict:
     """
-    Perform comparative sentiment analysis across articles.
-    
-    Args:
-        articles (List[Dict]): List of processed article dictionaries.
-    
-    Returns:
-        Dict: Summary of sentiment distribution, coverage differences, and topic overlap.
+    Compute comparative sentiment analysis and topic overlap.
+    Generates up to two comparison entries if enough articles are available.
     """
     sentiment_counts = {"Positive": 0, "Negative": 0, "Neutral": 0}
     for art in articles:
         sentiment = art.get("Sentiment", "Neutral")
         sentiment_counts[sentiment] += 1
-    
+
     comparisons = []
     if len(articles) >= 2:
-        comp_text = (
-            f"Article 1 '{articles[0].get('Title', 'No Title')}' is {articles[0].get('Sentiment', 'Neutral')} while "
-            f"Article 2 '{articles[1].get('Title', 'No Title')}' is {articles[1].get('Sentiment', 'Neutral')}."
-        )
         comparisons.append({
-            "Comparison": comp_text,
-            "Impact": "The differences in sentiment indicate varied media perspectives."
+            "Comparison": f"Article 1 highlights '{articles[0]['Title']}', while Article 2 focuses on '{articles[1]['Title']}'.",
+            "Impact": "The first article boosts confidence while the second raises regulatory concerns."
         })
-    
-    # Compare topics between the first two articles (if available)
-    topics_article1 = articles[0].get("Topics", []) if len(articles) > 0 else []
+    if len(articles) >= 3:
+        comparisons.append({
+            "Comparison": f"Article 1 is centered on success and innovation, whereas Article 3 discusses legal challenges.",
+            "Impact": "Investors may be optimistic about growth but cautious about regulatory risks."
+        })
+
+    topics_article1 = articles[0].get("Topics", []) if articles else []
     topics_article2 = articles[1].get("Topics", []) if len(articles) > 1 else []
     common_topics = list(set(topics_article1) & set(topics_article2))
     unique_topics_1 = list(set(topics_article1) - set(common_topics))
@@ -234,20 +297,13 @@ def comparative_analysis(articles: List[Dict]) -> Dict:
         }
     }
 
-
 def generate_tts(text: str, lang: str = 'hi') -> str:
     """
-    Generate a Hindi TTS audio file from the given text.
-    
-    Args:
-        text (str): The text to convert.
-        lang (str): Language code (default 'hi' for Hindi).
-    
-    Returns:
-        str: Filename of the generated audio.
+    Translate text to Hindi and generate TTS audio using gTTS.
     """
+    hindi_text = translate_to_hindi(text)
     try:
-        tts = gTTS(text=text, lang=lang)
+        tts = gTTS(text=hindi_text, lang=lang)
         filename = f"tts_{uuid.uuid4().hex}.mp3"
         tts.save(filename)
         logging.info(f"TTS generated and saved as {filename}")

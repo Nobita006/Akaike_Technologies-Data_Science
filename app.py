@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import os
+import pandas as pd
 
 st.title("News Summarization and Text-to-Speech Application (BBC Edition)")
 
@@ -17,7 +18,17 @@ if st.button("Analyze"):
                 st.subheader("Sentiment Report")
                 st.json(data)
                 
-                # Display audio player if the generated file exists locally
+                # Visualize sentiment distribution using a bar chart
+                sentiment_data = data.get("Comparative Sentiment Score", {}).get("Sentiment Distribution", {})
+                if sentiment_data:
+                    df = pd.DataFrame(list(sentiment_data.items()), columns=["Sentiment", "Count"]).set_index("Sentiment")
+                    st.bar_chart(df)
+                
+                # Display the final sentiment analysis text
+                st.subheader("Final Sentiment Analysis")
+                st.write(data.get("Final Sentiment Analysis", ""))
+                
+                # Display audio player for the Hindi TTS output
                 audio_file = data.get("Audio")
                 if audio_file and os.path.exists(audio_file):
                     with open(audio_file, 'rb') as f:

@@ -38,6 +38,10 @@ Akaike-Internship-Assignment/
    python --version
 
    pip install -r requirements.txt
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+   pip install --upgrade --no-cache-dir numpy spacy thinc pandas scipy
+   pip install --upgrade numpy pandas streamlit
+
    ```
 
 3. **Run the Backend API:**

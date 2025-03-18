@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-from utils import fetch_news, process_article, comparative_analysis, generate_tts
+from utils import fetch_news, process_article, comparative_analysis, generate_tts, advanced_summarize
 
 app = Flask(__name__)
 
@@ -10,36 +10,47 @@ def analyze():
     if not company:
         return jsonify({"error": "Company name not provided"}), 400
     
-    # Fetch BBC articles
-    raw_articles = fetch_news(company)
+    # Fetch BBC articles for the given company
+    raw_articles = fetch_news(company, num_articles=10)
     if not raw_articles:
-        return jsonify({
-            "error": f"No articles found for '{company}'."
-        }), 404
+        return jsonify({"error": f"No articles found for '{company}'."}), 404
     
-    # Process each article (summarize, sentiment, topics)
+    # Process each article (advanced summarization, sentiment analysis, topic extraction)
     processed_articles = [process_article(article) for article in raw_articles]
     
-    # Perform comparative sentiment analysis
+    # Prepare final output for articles (exclude Link field)
+    articles_output = [{
+        "Title": art.get("Title"),
+        "Summary": art.get("Summary"),
+        "Sentiment": art.get("Sentiment"),
+        "Topics": art.get("Topics")
+    } for art in processed_articles]
+    
+    # Compute comparative sentiment analysis and topic overlap
     comp_analysis = comparative_analysis(processed_articles)
+    sentiment_distribution = comp_analysis.get("Sentiment Distribution", {})
     
-    # Aggregate final sentiment
-    pos = sum(1 for art in processed_articles if art["Sentiment"] == "Positive")
-    neg = sum(1 for art in processed_articles if art["Sentiment"] == "Negative")
-    if pos > neg:
-        final_sentiment = f"{company}'s news coverage is mostly positive."
-    elif neg > pos:
-        final_sentiment = f"{company}'s news coverage is mostly negative."
-    else:
-        final_sentiment = "Overall, the news coverage seems balanced."
+    # Determine majority sentiment
+    majority = "Neutral"
+    if sentiment_distribution.get("Positive", 0) > sentiment_distribution.get("Negative", 0):
+        majority = "Positive"
+    elif sentiment_distribution.get("Negative", 0) > sentiment_distribution.get("Positive", 0):
+        majority = "Negative"
     
-    # Generate Hindi TTS
-    audio_text = f"Company {company}. {final_sentiment}"
+    # Aggregate article summaries and generate a short final summary
+    aggregated_text = " ".join([art["Summary"] for art in processed_articles])
+    short_summary = advanced_summarize(aggregated_text, num_sentences=1)
+    
+    # Form final sentiment analysis: state the majority sentiment and include the short summary.
+    final_sentiment = f"{company}'s latest news coverage is mostly {majority}. {short_summary}"
+    
+    # Generate Hindi TTS for the final sentiment analysis
+    audio_text = f"कंपनी {company}. {final_sentiment}"
     audio_file = generate_tts(audio_text, lang='hi')
     
     response = {
         "Company": company,
-        "Articles": processed_articles,
+        "Articles": articles_output,
         "Comparative Sentiment Score": comp_analysis,
         "Final Sentiment Analysis": final_sentiment,
         "Audio": audio_file
