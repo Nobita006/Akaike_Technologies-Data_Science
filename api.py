@@ -10,8 +10,8 @@ def analyze():
     if not company:
         return jsonify({"error": "Company name not provided"}), 400
     
-    # Fetch exactly 16 BBC articles for the given company
-    raw_articles = fetch_news(company, num_articles=16)
+    # Fetch exactly 15 BBC articles for the given company
+    raw_articles = fetch_news(company, num_articles=15)
     if not raw_articles:
         return jsonify({"error": f"No articles found for '{company}'."}), 404
     

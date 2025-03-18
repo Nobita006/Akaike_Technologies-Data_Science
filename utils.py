@@ -102,7 +102,7 @@ async def fetch_article_content(session: aiohttp.ClientSession, url: str) -> str
         logging.error(f"Error fetching article content asynchronously from {url}: {e}")
         return ""
 
-def fetch_news(company_name: str, num_articles: int = 16) -> List[Dict[str, str]]:
+def fetch_news(company_name: str, num_articles: int = 15) -> List[Dict[str, str]]:
     """
     Fetch BBC news articles related to the given company.
     This function loops through pages (up to 5 pages) and aggregates result cards until
