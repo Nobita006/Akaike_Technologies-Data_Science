@@ -1,5 +1,8 @@
 from flask import Flask, request, jsonify, send_file
-from utils import fetch_news, process_article, comparative_analysis, generate_tts, advanced_summarize
+from utils import (
+    fetch_news, process_article, comparative_analysis, generate_tts,
+    advanced_summarize, extended_analysis, build_embeddings
+)
 
 app = Flask(__name__)
 
@@ -10,54 +13,54 @@ def analyze():
     if not company:
         return jsonify({"error": "Company name not provided"}), 400
     
-    # Fetch exactly 15 BBC articles for the given company
+    # Fetch BBC articles
     raw_articles = fetch_news(company, num_articles=15)
     if not raw_articles:
         return jsonify({"error": f"No articles found for '{company}'."}), 404
     
-    # Process each article: advanced summarization, sentiment analysis, topic extraction
-    processed_articles = [process_article(article) for article in raw_articles]
-    
-    # Prepare final output for articles (only Title, Summary, Sentiment, and Topics)
+    processed_articles = [process_article(a) for a in raw_articles]
+
+    # Minimal output
     articles_output = [{
-        "Title": art.get("Title"),
-        "Summary": art.get("Summary"),
-        "Sentiment": art.get("Sentiment"),
-        "Topics": art.get("Topics")
+        "Title": art["Title"],
+        "Summary": art["Summary"],
+        "Sentiment": art["Sentiment"],
+        "Topics": art["Topics"]
     } for art in processed_articles]
     
-    # Compute overall comparative analysis
+    # Basic + Extended Analysis
     comp_analysis = comparative_analysis(processed_articles)
-    sentiment_distribution = comp_analysis.get("Sentiment Distribution", {})
+    ext_analysis = extended_analysis(processed_articles)
+    embeddings = build_embeddings(processed_articles)
     
-    # Determine majority sentiment across all articles
+    # Determine majority sentiment
+    sentiment_dist = comp_analysis.get("Sentiment Distribution", {})
     majority = "Neutral"
-    if sentiment_distribution.get("Positive", 0) > sentiment_distribution.get("Negative", 0):
+    pos_count = sentiment_dist.get("Positive", 0)
+    neg_count = sentiment_dist.get("Negative", 0)
+    if pos_count > neg_count:
         majority = "Positive"
-    elif sentiment_distribution.get("Negative", 0) > sentiment_distribution.get("Positive", 0):
+    elif neg_count > pos_count:
         majority = "Negative"
     
-    # Aggregate all article summaries and generate a short dynamic summary (one sentence)
-    aggregated_text = " ".join([art["Summary"] for art in processed_articles])
+    # Summarize all articles
+    aggregated_text = " ".join(a["Summary"] for a in processed_articles)
     short_summary = advanced_summarize(aggregated_text, num_sentences=1)
-    
-    # Form a concise final sentiment analysis using the company name, majority sentiment, and short summary.
     final_sentiment = f"{company}'s latest news is mostly {majority}. {short_summary}"
     final_sentiment = final_sentiment.replace(" .", ".")
-    
-    # Generate Hindi TTS for the final sentiment analysis
-    audio_text = f"कंपनी {company}. {final_sentiment}"
-    audio_file = generate_tts(audio_text, lang='hi')
-    
-    response = {
+
+    # TTS
+    audio_file = generate_tts(f"कंपनी {company}. {final_sentiment}", lang='hi')
+
+    return jsonify({
         "Company": company,
         "Articles": articles_output,
         "Comparative Sentiment Score": comp_analysis,
+        "Extended Analysis": ext_analysis,
         "Final Sentiment Analysis": final_sentiment,
+        "Embeddings": embeddings,  # for semantic search
         "Audio": audio_file
-    }
-    
-    return jsonify(response)
+    })
 
 @app.route('/audio/<filename>', methods=['GET'])
 def get_audio(filename):
