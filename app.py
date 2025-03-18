@@ -9,13 +9,13 @@ company = st.text_input("Enter Company Name:", "")
 
 if st.button("Analyze"):
     if company:
-        api_url = "http://localhost:5000/analyze"  # Adjust if needed
+        api_url = "http://localhost:5000/analyze"  # Adjust if necessary
         payload = {"company": company}
         try:
             response = requests.post(api_url, json=payload)
             if response.status_code == 200:
                 data = response.json()
-                st.subheader("Sentiment Report")
+                st.subheader(f"Sentiment Report of {company}")
                 st.json(data)
                 
                 # Visualize sentiment distribution using a bar chart
@@ -24,11 +24,7 @@ if st.button("Analyze"):
                     df = pd.DataFrame(list(sentiment_data.items()), columns=["Sentiment", "Count"]).set_index("Sentiment")
                     st.bar_chart(df)
                 
-                # Display the final sentiment analysis text
-                st.subheader("Final Sentiment Analysis")
-                st.write(data.get("Final Sentiment Analysis", ""))
-                
-                # Display audio player for the Hindi TTS output
+                # Display audio player for the Hindi TTS output (filename is hidden)
                 audio_file = data.get("Audio")
                 if audio_file and os.path.exists(audio_file):
                     with open(audio_file, 'rb') as f:

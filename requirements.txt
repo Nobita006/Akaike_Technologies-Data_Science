@@ -11,3 +11,4 @@ spacy==3.5.0
 googletrans==4.0.0-rc1
 keybert
 pandas
+clean_text

@@ -7,8 +7,7 @@ import aiohttp
 import requests
 import nltk
 from bs4 import BeautifulSoup
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk import pos_tag
+from nltk.tokenize import sent_tokenize
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from gtts import gTTS
 from typing import List, Dict, Tuple
@@ -18,7 +17,7 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # Import torch to check for GPU availability
 import torch
-device = 0 if torch.cuda.is_available() else -1  # device=0 means GPU; -1 means CPU
+device = 0 if torch.cuda.is_available() else -1  # device=0 uses GPU; -1 uses CPU
 
 # Additional libraries for advanced summarization, topic extraction, translation, and sentiment analysis
 from transformers import pipeline
@@ -106,8 +105,7 @@ async def fetch_article_content(session: aiohttp.ClientSession, url: str) -> str
 def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]]:
     """
     Fetch BBC news articles related to the given company.
-    Uses BBC's search page and asynchronous requests to retrieve article content.
-    To ensure we get at least num_articles, we request a larger set and then slice.
+    Requests 15 results and then slices to the desired number.
     """
     cache_key = f"bbc_{company_name}_{num_articles}"
     cached = get_from_cache(cache_key)
@@ -126,7 +124,7 @@ def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]
         return []
     
     soup = BeautifulSoup(response.text, 'html.parser')
-    # Request more results (15) and then slice to num_articles
+    # Request more results than needed, then slice.
     result_cards = soup.find_all('div', attrs={"data-testid": "newport-card"}, limit=15)
     logging.info(f"Found {len(result_cards)} BBC search results for '{company_name}'.")
     
@@ -155,7 +153,6 @@ def fetch_news(company_name: str, num_articles: int = 10) -> List[Dict[str, str]
     articles = loop.run_until_complete(asyncio.gather(*tasks))
     loop.close()
     
-    # Slice to the requested number
     articles = articles[:num_articles]
     set_cache(cache_key, articles)
     return articles
@@ -184,8 +181,7 @@ def advanced_summarize(text: str, num_sentences: int = 1) -> str:
 
 def analyze_sentiment(text: str) -> Tuple[str, Dict[str, float]]:
     """
-    Analyze sentiment using a transformer-based model if available;
-    otherwise fallback to VADER. Returns a sentiment label and scores.
+    Analyze sentiment using a transformer-based model if available; otherwise fallback to VADER.
     """
     if sentiment_pipeline:
         try:
@@ -240,7 +236,7 @@ def translate_to_hindi(text: str) -> str:
 
 def process_article(article: Dict[str, str]) -> Dict:
     """
-    Process an article by performing advanced summarization, sentiment analysis, and topic extraction.
+    Process an article: advanced summarization, sentiment analysis, and topic extraction.
     """
     original_summary = article.get("Summary", "")
     if original_summary and original_summary != "Summary not available":
@@ -261,39 +257,48 @@ def process_article(article: Dict[str, str]) -> Dict:
 
 def comparative_analysis(articles: List[Dict]) -> Dict:
     """
-    Compute comparative sentiment analysis and topic overlap.
-    Generates up to two comparison entries if enough articles are available.
+    Compute comparative sentiment analysis and topic overlap across all articles.
+    This groups articles by sentiment and computes:
+      - Sentiment Distribution.
+      - Coverage Differences: Compare positive vs. negative articles and provide an overall comparison.
+      - Topic Overlap: Common topics between positive and negative articles, and unique topics in each group.
     """
     sentiment_counts = {"Positive": 0, "Negative": 0, "Neutral": 0}
     for art in articles:
         sentiment = art.get("Sentiment", "Neutral")
         sentiment_counts[sentiment] += 1
 
+    # Group article titles and topics by sentiment
+    pos_titles = [art["Title"] for art in articles if art["Sentiment"] == "Positive"]
+    neg_titles = [art["Title"] for art in articles if art["Sentiment"] == "Negative"]
+    
+    # Create comparison statements across all articles
     comparisons = []
-    if len(articles) >= 2:
+    if pos_titles and neg_titles:
         comparisons.append({
-            "Comparison": f"Article 1 highlights '{articles[0]['Title']}', while Article 2 focuses on '{articles[1]['Title']}'.",
-            "Impact": "The first article boosts confidence while the second raises regulatory concerns."
+            "Comparison": f"Positive articles ({', '.join(pos_titles)}) highlight opportunities, while negative articles ({', '.join(neg_titles)}) emphasize challenges.",
+            "Impact": "This indicates mixed market sentiment."
         })
-    if len(articles) >= 3:
-        comparisons.append({
-            "Comparison": f"Article 1 is centered on success and innovation, whereas Article 3 discusses legal challenges.",
-            "Impact": "Investors may be optimistic about growth but cautious about regulatory risks."
-        })
-
-    topics_article1 = articles[0].get("Topics", []) if articles else []
-    topics_article2 = articles[1].get("Topics", []) if len(articles) > 1 else []
-    common_topics = list(set(topics_article1) & set(topics_article2))
-    unique_topics_1 = list(set(topics_article1) - set(common_topics))
-    unique_topics_2 = list(set(topics_article2) - set(common_topics))
+    all_titles = [art["Title"] for art in articles]
+    comparisons.append({
+        "Comparison": f"Overall, the coverage spans: {', '.join(all_titles)}.",
+        "Impact": "The news reflects a broad spectrum of perspectives."
+    })
+    
+    # Compute common topics between positive and negative groups
+    pos_topics = set().union(*(set(art["Topics"]) for art in articles if art["Sentiment"] == "Positive"))
+    neg_topics = set().union(*(set(art["Topics"]) for art in articles if art["Sentiment"] == "Negative"))
+    common_topics = list(pos_topics.intersection(neg_topics))
+    unique_pos = list(pos_topics - set(common_topics))
+    unique_neg = list(neg_topics - set(common_topics))
     
     return {
         "Sentiment Distribution": sentiment_counts,
         "Coverage Differences": comparisons,
         "Topic Overlap": {
             "Common Topics": common_topics,
-            "Unique Topics in Article 1": unique_topics_1,
-            "Unique Topics in Article 2": unique_topics_2
+            "Unique Topics in Positive Articles": unique_pos,
+            "Unique Topics in Negative Articles": unique_neg
         }
     }
 

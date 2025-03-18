@@ -10,15 +10,15 @@ def analyze():
     if not company:
         return jsonify({"error": "Company name not provided"}), 400
     
-    # Fetch BBC articles for the given company
-    raw_articles = fetch_news(company, num_articles=10)
+    # Fetch exactly 16 BBC articles for the given company
+    raw_articles = fetch_news(company, num_articles=16)
     if not raw_articles:
         return jsonify({"error": f"No articles found for '{company}'."}), 404
     
-    # Process each article (advanced summarization, sentiment analysis, topic extraction)
+    # Process each article: advanced summarization, sentiment analysis, and topic extraction
     processed_articles = [process_article(article) for article in raw_articles]
     
-    # Prepare final output for articles (exclude Link field)
+    # Prepare final output for articles (Title, Summary, Sentiment, Topics)
     articles_output = [{
         "Title": art.get("Title"),
         "Summary": art.get("Summary"),
@@ -26,23 +26,24 @@ def analyze():
         "Topics": art.get("Topics")
     } for art in processed_articles]
     
-    # Compute comparative sentiment analysis and topic overlap
+    # Compute overall comparative analysis
     comp_analysis = comparative_analysis(processed_articles)
     sentiment_distribution = comp_analysis.get("Sentiment Distribution", {})
     
-    # Determine majority sentiment
+    # Determine majority sentiment across all articles
     majority = "Neutral"
     if sentiment_distribution.get("Positive", 0) > sentiment_distribution.get("Negative", 0):
         majority = "Positive"
     elif sentiment_distribution.get("Negative", 0) > sentiment_distribution.get("Positive", 0):
         majority = "Negative"
     
-    # Aggregate article summaries and generate a short final summary
+    # Aggregate all article summaries and generate a short summary from them
     aggregated_text = " ".join([art["Summary"] for art in processed_articles])
     short_summary = advanced_summarize(aggregated_text, num_sentences=1)
     
-    # Form final sentiment analysis: state the majority sentiment and include the short summary.
-    final_sentiment = f"{company}'s latest news coverage is mostly {majority}. {short_summary}"
+    # Form a concise final sentiment analysis using the company name, majority sentiment, and short summary.
+    final_sentiment = f"{company}'s latest news is mostly {majority}. {short_summary}"
+    final_sentiment = final_sentiment.replace(" .", ".")
     
     # Generate Hindi TTS for the final sentiment analysis
     audio_text = f"कंपनी {company}. {final_sentiment}"
