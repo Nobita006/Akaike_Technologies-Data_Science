@@ -34,12 +34,16 @@ Akaike-Internship-Assignment/
    ```bash
    py --list
    py -3.10 -m venv env
-   venv\Scripts\activate
+   env\Scripts\activate
    python --version
 
    pip install -r requirements.txt
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
    python -m spacy download en_core_web_sm
+   
+   (To run on CUDA 12)
+   nvcc --version
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 
 
    ```
 
