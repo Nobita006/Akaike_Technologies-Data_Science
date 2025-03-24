@@ -27,7 +27,7 @@ Akaike_Technologies-Data_Science/
 ├── api.py          # Flask backend API
 ├── utils.py        # Utility functions for news scraping, summarization, sentiment analysis, and TTS
 ├── requirements.txt
-└── README.md       # This documentation file
+└── README.md       
 ```
 
 ## **2. Project Setup**  
