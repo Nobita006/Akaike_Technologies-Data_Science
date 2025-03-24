@@ -9,15 +9,20 @@ For a quick overview, please watch the demonstration here:
 
 **Live website** - https://huggingface.co/spaces/Nobita69/News-Summarization
 
+**ScreenShot**
+
+![image](https://github.com/user-attachments/assets/835d8ee3-9d4f-4ad2-9943-eafd8ef55d0d)
+
+
 ---
 ## Project Overview
 This application extracts news articles related to a given company, performs sentiment analysis, conducts a comparative sentiment analysis, and generates a Hindi TTS audio summary.
 
 ---
 
-## Project Structure
+## Project Structure (Important files)
 ```
-Akaike-Internship-Assignment/
+Akaike_Technologies-Data_Science/
 ├── app.py          # Streamlit frontend
 ├── api.py          # Flask backend API
 ├── utils.py        # Utility functions for news scraping, summarization, sentiment analysis, and TTS
@@ -138,7 +143,7 @@ I rely on several NLP and speech models to handle summarization, sentiment analy
        "Articles": [...],
        "Comparative Sentiment Score": {...},
        "Extended Analysis": {...},
-       "Final Sentiment Analysis": "Tesla's latest news is mostly Positive. [...]",
+       "Final Sentiment Analysis": [...]",
        "Audio": "tts_<some_id>.mp3"
      }
      ```
