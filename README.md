@@ -5,9 +5,9 @@ I have built a two-part application that fetches BBC news articles for a given c
 
 ## **1. Demonstration**  
 For a quick overview, please watch the demonstration here:  
-**[Video Demo](https://youtu.be/9FTq97tuEOk)**  
+**Video** - https://youtu.be/9FTq97tuEOk
 
-Live website - https://huggingface.co/spaces/Nobita69/News-Summarization
+**Live website** - https://huggingface.co/spaces/Nobita69/News-Summarization
 
 ---
 ## Project Overview
@@ -47,13 +47,13 @@ Akaike-Internship-Assignment/
 
    ```
 
-3. **Run the Backend API:**
+3. **Run the Backend Flask App:**
    ```bash
    python api.py
    ```
    The API will start on `http://localhost:5000`.
 
-4. **Run the Frontend Application:**
+4. **Run the Frontend Streamlit Application:**
    In another terminal, run:
    ```bash
    streamlit run app.py
@@ -139,7 +139,6 @@ I rely on several NLP and speech models to handle summarization, sentiment analy
        "Comparative Sentiment Score": {...},
        "Extended Analysis": {...},
        "Final Sentiment Analysis": "Tesla's latest news is mostly Positive. [...]",
-       "Embeddings": [...],
        "Audio": "tts_<some_id>.mp3"
      }
      ```
@@ -160,12 +159,12 @@ You can interact with the backend via tools like **Postman** or **cURL**:
   curl -X POST \
        -H "Content-Type: application/json" \
        -d '{"company":"Ford"}' \
-       http://<your_server_ip_or_domain>:5000/analyze
+       http://<server_ip_or_domain>:5000/analyze
   ```
 
 - **GET /audio/<filename>**  
   ```bash
-  curl http://<your_server_ip_or_domain>:5000/audio/tts_xxxx.mp3 --output local_audio.mp3
+  curl http://<server_ip_or_domain>:5000/audio/tts_xxxx.mp3 --output local_audio.mp3
   ```
 
 ### **5.2. Third-Party APIs**  
