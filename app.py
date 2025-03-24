@@ -82,6 +82,29 @@ def do_semantic_search(query_text, articles, embeddings, top_k=3):
     top_indices = np.argsort(-scores)[:top_k]
     return [articles[i] for i in top_indices]
 
+def display_audio(audio_file):
+    # Define your backend audio base URL
+    backend_audio_base_url = "http://localhost:5000/audio/"
+    
+    if audio_file:
+        # Check if we've already fetched the audio bytes
+        if "audio_bytes" not in st.session_state or st.session_state["audio_bytes"] is None:
+            audio_url = f"{backend_audio_base_url}{audio_file}"
+            try:
+                audio_response = requests.get(audio_url)
+                if audio_response.status_code == 200:
+                    st.session_state["audio_bytes"] = audio_response.content
+                else:
+                    st.write("Audio file not available (HTTP error).")
+                    return
+            except Exception as e:
+                st.write("Error fetching audio file:", e)
+                return
+        # Use the stored audio bytes for display
+        st.audio(st.session_state["audio_bytes"], format="audio/mp3")
+    else:
+        st.write("Audio file not available.")
+
 ##############################
 # Layout
 ##############################
@@ -102,28 +125,29 @@ with col_center:
             response = requests.post(api_url, json=payload)
             if response.status_code == 200:
                 data = response.json()
-
+    
                 # Save entire analysis in session state
                 st.session_state["analysis_data"] = data
-
-                # Extract audio_file; store in session
+    
+                # Extract audio_file; store in session and reset cached audio bytes
                 audio_file = data.get("Audio")
                 st.session_state["audio_file"] = audio_file
-
+                st.session_state["audio_bytes"] = None  # Reset audio cache
+    
                 # Remove "Audio" from displayed JSON
                 if "Audio" in data:
                     del data["Audio"]
-
+    
                 # Reset search states
                 st.session_state["show_search_results"] = False
                 st.session_state["search_results"] = []
-
+    
                 st.subheader(f"Sentiment Report of {company}")
                 st.markdown(f"**{data.get('Final Sentiment Analysis', '')}**")
-
+    
                 with st.expander("Show/Hide Detailed JSON"):
                     st.json(data)
-
+    
                 # Chart
                 sentiment_data = data.get("Comparative Sentiment Score", {}).get("Sentiment Distribution", {})
                 if sentiment_data:
@@ -140,7 +164,7 @@ with col_center:
                         .properties(width=600, height=400)
                     )
                     st.altair_chart(chart, use_container_width=True)
-
+    
                 # Extended Analysis
                 ext_analysis = data.get("Extended Analysis", {})
                 if ext_analysis:
@@ -153,12 +177,12 @@ with col_center:
                     st.markdown("**Top Words**")
                     for w, freq in word_counts:
                         st.write(f"{w}: {freq}")
-
+    
                 # Articles & Embeddings
                 articles = data.get("Articles", [])
                 st.session_state["articles"] = articles
                 st.session_state["embeddings"] = data.get("Embeddings", [])
-
+    
                 # Show articles
                 if articles:
                     st.subheader("Articles")
@@ -167,20 +191,16 @@ with col_center:
                             st.write(f"**Summary:** {article.get('Summary', '')}")
                             st.write(f"**Sentiment:** {article.get('Sentiment', '')}")
                             st.write(f"**Topics:** {article.get('Topics', [])}")
-
+    
                 # Show audio TTS
-                if audio_file and os.path.exists(audio_file):
-                    with open(audio_file, 'rb') as f:
-                        audio_bytes = f.read()
-                    st.audio(audio_bytes, format="audio/mp3")
-                else:
-                    st.write("Audio file not available.")
-
+                display_audio(audio_file)
+    
             else:
                 st.error(f"Error from API: {response.text}")
-
+    
         except Exception as e:
             st.error(f"Error connecting to API: {str(e)}")
+    
 
     elif analyze_button and not company:
         st.error("Please enter a company name.")
@@ -260,12 +280,7 @@ with col_center:
                         st.write(f"**Topics:** {article.get('Topics', [])}")
 
             # Show audio TTS again
-            if audio_file and os.path.exists(audio_file):
-                with open(audio_file, 'rb') as f:
-                    audio_bytes = f.read()
-                st.audio(audio_bytes, format="audio/mp3")
-            else:
-                st.write("Audio file not available.")
+            display_audio(audio_file)
 
 ##############################
 # 6. Show semantic search in sidebar if articles exist
