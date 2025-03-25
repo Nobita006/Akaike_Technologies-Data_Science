@@ -7,7 +7,7 @@ I have built a two-part application that fetches BBC news articles for a given c
 For a quick overview, please watch the demonstration here:  
 **Video** - https://youtu.be/9FTq97tuEOk
 
-**Live website** - https://huggingface.co/spaces/Nobita69/News-Summarization
+**Live website** - https://huggingface.co/spaces/Nobita69/News-Summarization  (It's running on a CPU-only server so be patient. It will take about 2 mins to respond)
 
 **ScreenShot**
 
